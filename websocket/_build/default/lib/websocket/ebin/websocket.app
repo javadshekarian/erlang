@@ -1,0 +1,10 @@
+{application,websocket,
+             [{description,"An OTP application"},
+              {vsn,"0.1.0"},
+              {registered,[]},
+              {mod,{websocket_app,[]}},
+              {applications,[kernel,stdlib,cowboy,ranch]},
+              {env,[]},
+              {modules,[websocket_app,websocket_handler,websocket_sup]},
+              {licenses,["Apache-2.0"]},
+              {links,[]}]}.

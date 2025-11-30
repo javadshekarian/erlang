@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fa">
+<head>
+  <meta charset="UTF-8">
+  <title>WebSocket Chat Dynamic</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #messages { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; margin-bottom: 10px; }
+    #loginContainer, #chatContainer { margin-top: 10px; }
+    input, button { padding: 5px; margin-right: 5px; }
+    #chatContainer { display: none; }
+  </style>
+</head>
+<body>
+  <h2>چت با WebSocket</h2>
+
+  <div id="messages"></div>
+
+  <div id="loginContainer">
+    <input type="text" id="username" placeholder="نام کاربری خود را وارد کنید" />
+    <button onclick="registerUser()">ثبت نام</button>
+  </div>
+
+  <div id="chatContainer">
+    <input type="text" id="toUser" placeholder="ارسال به (نام کاربری)" />
+    <input type="text" id="message" placeholder="پیام..." />
+    <button onclick="sendMessage()">ارسال</button>
+  </div>
+
+  <script>
+    let ws;
+    let myUsername = "";
+
+    const messagesDiv = document.getElementById('messages');
+    const loginContainer = document.getElementById('loginContainer');
+    const chatContainer = document.getElementById('chatContainer');
+
+    function addMessage(msg) {
+      const p = document.createElement('p');
+      p.textContent = msg;
+      messagesDiv.appendChild(p);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function registerUser() {
+      const usernameInput = document.getElementById('username');
+      const username = usernameInput.value.trim();
+      if (!username) {
+        alert("لطفاً نام کاربری خود را وارد کنید!");
+        return;
+      }
+
+      myUsername = username;
+      ws = new WebSocket("ws://localhost:8082/ws");
+
+      ws.addEventListener('open', () => {
+        addMessage(`اتصال برقرار شد. ثبت نام با نام کاربری ${myUsername}...`);
+        ws.send(JSON.stringify({type: "register", username: myUsername}));
+      });
+
+      ws.addEventListener('message', ev => {
+        const data = JSON.parse(ev.data);
+        if (data.type === "message") {
+          addMessage(`پیام از ${data.from}: ${data.body}`);
+        } else if (data.status) {
+          addMessage(`سرور: ${data.status}`);
+        } else if (data.error) {
+          addMessage(`خطا: ${data.error}`);
+        } else {
+          addMessage(`سرور: ${ev.data}`);
+        }
+        console.log("from server:", ev.data);
+      });
+
+      ws.addEventListener('close', () => {
+        addMessage("اتصال WebSocket قطع شد.");
+      });
+
+      ws.addEventListener('error', (err) => {
+        addMessage("خطا در اتصال WebSocket.");
+        console.error(err);
+      });
+
+      loginContainer.style.display = "none";
+      chatContainer.style.display = "block";
+    }
+
+    function sendMessage() {
+      const toUser = document.getElementById('toUser').value.trim();
+      const message = document.getElementById('message').value.trim();
+
+      if (!toUser || !message) {
+        alert("لطفاً نام کاربر مقصد و پیام را وارد کنید!");
+        return;
+      }
+      const messageContent = {
+        type: "message",
+        to: toUser,
+        body: message
+      }
+      console.log(messageContent);
+
+      ws.send(JSON.stringify(messageContent));
+
+      addMessage(`شما به ${toUser}: ${message}`);
+      document.getElementById('message').value = '';
+    }
+  </script>
+</body>
+</html>
