@@ -26,6 +26,7 @@ websocket_handle(_, State) ->
     {ok, State}.
 
 handle_client_msg(MsgMap, State) ->
+    io:format("~p~n",[MsgMap]),
     Type = maps:get(<<"type">>, MsgMap, undefined),
 
     case Type of
@@ -58,7 +59,7 @@ handle_client_msg(MsgMap, State) ->
                             Reply = jsx:encode(#{error => <<"user_not_online">>}),
                             {reply, {text, Reply}, State};
                         [{_, Pid}] ->
-                            %% ارسال پیام داخلی
+                            %%% Send Internal Message
                             Pid ! {ws_msg, From, Body},
                             Ack = jsx:encode(#{status => <<"sent">>}),
                             {reply, {text, Ack}, State}
