@@ -58,8 +58,10 @@ handle_call({create, Map}, _From, Tid) ->
         explain = maps:get(<<"explain">>, Map, maps:get(explain, Map, <<"">>)),
         mark = maps:get(<<"mark">>, Map, maps:get(mark, Map, <<"">>))
     },
-    dets:insert(Tid, {Id, Product}),
-    {reply, {ok, Product}, Tid};
+    case dets:insert(Tid, {Id, Product}) of
+        ok -> {reply, {ok, Product}, Tid};
+        {error, Reason} -> {reply, {error, Reason}, Tid}
+    end;
 
 handle_call({get, Id}, _From, Tid) ->
     case dets:lookup(Tid, Id) of
@@ -72,23 +74,31 @@ handle_call(all, _From, Tid) ->
     List = dets:foldl(FoldFun, [], Tid),
     {reply, {ok, lists:reverse(List)}, Tid};
 
-handle_call({update, Id, Map}, _From, Tid) ->
-    case dets:lookup(Tid, Id) of
-        [{_, Product}] ->
-            New = Product#product{
-                productName = maps:get(<<"productName">>, Map, Product#product.productName),
-                explain = maps:get(<<"explain">>, Map, Product#product.explain),
-                mark = maps:get(<<"mark">>, Map, Product#product.mark)
-            },
-            dets:insert(Tid, {Id, New}),
-            {reply, {ok, New}, Tid};
+handle_call({update, Id, Map}, _From, Tid) -> 
+    LookupResult = dets:lookup(Tid, Id),
+    case LookupResult of
         [] ->
-            {reply, {error, not_found}, Tid}
+            {reply, {error, unknown}, Tid};
+        [{_Key, Product}] ->
+            UpdatedProduct = Product#product{
+                explain = maps:get(<<"explain">>, Map, Product#product.explain),
+                mark = maps:get(<<"mark">>, Map, Product#product.mark),
+                productName = maps:get(<<"productName">>, Map, Product#product.productName),
+                created_at = Product#product.created_at
+            },
+            case dets:insert(Tid, {Id, UpdatedProduct}) of
+                ok ->
+                    {reply, {ok, UpdatedProduct}, Tid};
+                {error, Reason} ->
+                    {reply, {error, Reason}, Tid}
+            end
     end;
 
 handle_call({delete, Id}, _From, Tid) ->
-    dets:delete(Tid, Id),
-    {reply, ok, Tid};
+    case dets:delete(Tid, Id) of
+        ok -> {reply, ok, Tid};
+        {error, Reason} -> {reply, {error, Reason}, Tid}
+    end;
 
 handle_call(_Req, _From, Tid) ->
     {reply, {error, unknown}, Tid}.

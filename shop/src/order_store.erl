@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, create/1, get/1, all/0, update/2, delete/1]).
+-export([start_link/0, create/1, get/1, all/0, update/2, stop/0, delete/1]).
 
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -16,74 +16,75 @@
 }).
 
 -define(TABLE, orders).
+-define(SERVER, ?MODULE).
 
-%%% API %%%
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link() -> 
+    gen_server:start_link({local, ?SERVER}, ?SERVER, []).
 
-create(Map) when is_map(Map) ->
-    gen_server:call(?MODULE, {create, Map}).
+create(Order) -> 
+    gen_server:call(?SERVER, {create, Order}).
 
 get(Id) ->
-    gen_server:call(?MODULE, {get, Id}).
+    gen_server:call(?SERVER, {get, Id}).
 
 all() ->
-    gen_server:call(?MODULE, all).
+    gen_server:call(?SERVER, all).
 
-update(Id, Map) when is_map(Map) ->
-    gen_server:call(?MODULE, {update, Id, Map}).
+update(Id, OrderPartial) ->
+    gen_server:call(?SERVER, {update, Id, OrderPartial}).
 
 delete(Id) ->
-    gen_server:call(?MODULE, {delete, Id}).
+    gen_server:call(?SERVER, {delete, Id}).
 
-%%% gen_server callbacks %%%
+stop() -> 
+    gen_server:stop(?SERVER).
+
 init([]) ->
-    File = atom_to_list(?TABLE) ++ ".dets",
-    case dets:open_file(?TABLE, [{file, File}]) of
+    FileName = atom_to_list(?TABLE) ++ ".dets",
+    case dets:open_file(?TABLE, [{file, FileName}]) of
         {ok, Tid} -> {ok, Tid};
         {error, Reason} ->
             io:format("Failed to open dets ~p: ~p~n", [?TABLE, Reason]),
             {stop, Reason}
     end.
 
-handle_call({create, Map}, _From, Tid) ->
-    % Validate FK: check product exists
-    FK = case maps:get(<<"fk_product_id">>, Map, maps:get(fk_product_id, Map, undefined)) of
-             N when is_integer(N) -> N;
-             Bin when is_binary(Bin) ->
-                case catch list_to_integer(binary_to_list(Bin)) of
-                    I when is_integer(I) -> I;
-                    _ -> undefined
-                end;
-             _ -> undefined
-         end,
-    case FK of
-        undefined ->
-            {reply, {error, invalid_fk}, Tid};
-        _ ->
-            % check via product_store
-            case product_store:get(FK) of
-                {ok, _Prod} ->
-                    Id = erlang:unique_integer([monotonic, positive]),
-                    Created = utils:now_iso(),
-                    Order = #order{
-                        id = Id,
-                        username = maps:get(<<"username">>, Map, maps:get(username, Map, <<"">>)),
-                        fk_product_id = FK,
-                        created_at = Created,
-                        order_type = maps:get(<<"order_type">>, Map, maps:get(order_type, Map, <<"">>))
-                    },
-                    dets:insert(Tid, {Id, Order}),
-                    {reply, {ok, Order}, Tid};
-                {error, not_found} ->
-                    {reply, {error, fk_not_found}, Tid}
+handle_call({create, OrderIndex}, _From, Tid) ->
+    Created = utils:now_iso(),
+    Id = erlang:unique_integer([monotonic, positive]),
+    Order = #order{
+        created_at = Created, 
+        id = Id, 
+        order_type = maps:get(<<"order_type">>, OrderIndex, undefined), 
+        username = maps:get(<<"username">>, OrderIndex, undefined), 
+        fk_product_id = maps:get(<<"fk_product_id">>, OrderIndex, undefined)
+    },
+    case dets:insert(Tid, {Id, Order}) of
+        ok -> {reply, {ok, Order}, Tid};
+        {error, Reason} -> {reply, {error, Reason}, Tid}
+    end;
+
+handle_call({update, Id, OrderPartial}, _From, Tid) ->
+    LookupedOrder = dets:lookup(Tid, Id),
+    case LookupedOrder of
+        [] -> 
+            {reply, {error, unknown}, Tid};
+        [{_Key, Order}] ->
+            UpdatedOrder = Order#order {
+                created_at = Order#order.created_at,
+                order_type = maps:get(<<"order_type">>, OrderPartial, Order#order.order_type),
+                username = maps:get(<<"username">>, OrderPartial, Order#order.username),
+                fk_product_id = maps:get(<<"fk_product_id">>, OrderPartial, Order#order.fk_product_id)
+            },
+            case dets:insert(Tid, {Id, UpdatedOrder}) of
+                ok -> {reply, {ok, UpdatedOrder}, Tid};
+                {error, Reason} -> {reply, {error, Reason}, Tid}
             end
     end;
 
 handle_call({get, Id}, _From, Tid) ->
     case dets:lookup(Tid, Id) of
-        [{_, Order}] -> {reply, {ok, Order}, Tid};
-        [] -> {reply, {error, not_found}, Tid}
+        [{_Key, Order}] -> {reply, {ok, Order}, Tid};
+        [] -> {reply, {error, unknown}, Tid}
     end;
 
 handle_call(all, _From, Tid) ->
@@ -91,44 +92,22 @@ handle_call(all, _From, Tid) ->
     List = dets:foldl(FoldFun, [], Tid),
     {reply, {ok, lists:reverse(List)}, Tid};
 
-handle_call({update, Id, Map}, _From, Tid) ->
-    case dets:lookup(Tid, Id) of
-        [{_, Order}] ->
-            % allow updating username and order_type and fk (with FK validation)
-            NewFK = case maps:get(<<"fk_product_id">>, Map, Order#order.fk_product_id) of
-                        N when is_integer(N) -> N;
-                        Bin when is_binary(Bin) ->
-                            case catch list_to_integer(binary_to_list(Bin)) of
-                                I when is_integer(I) -> I;
-                                _ -> Order#order.fk_product_id
-                            end;
-                        _ -> Order#order.fk_product_id
-                    end,
-            case product_store:get(NewFK) of
-                {ok, _Prod} ->
-                    New = Order#order{
-                        username = maps:get(<<"username">>, Map, Order#order.username),
-                        fk_product_id = NewFK,
-                        order_type = maps:get(<<"order_type">>, Map, Order#order.order_type)
-                    },
-                    dets:insert(Tid, {Id, New}),
-                    {reply, {ok, New}, Tid};
-                {error, not_found} ->
-                    {reply, {error, fk_not_found}, Tid}
-            end;
-        [] -> {reply, {error, not_found}, Tid}
+handle_call({delete, Id}, _From, Tid) ->
+    case dets:delete(Tid, Id) of
+        ok -> {reply, ok, Tid};
+        {error, Reason} -> {reply, {error, Reason}, Tid}
     end;
 
-handle_call({delete, Id}, _From, Tid) ->
-    dets:delete(Tid, Id),
-    {reply, ok, Tid};
+handle_call(_Other, _From, Tid) ->
+    {reply, ok, Tid}.
 
-handle_call(_Req, _From, Tid) ->
-    {reply, {error, unknown}, Tid}.
 
-handle_cast(_Msg, State) -> {noreply, State}.
-handle_info(_Info, State) -> {noreply, State}.
-terminate(_Reason, Tid) ->
-    catch dets:close(Tid),
+handle_cast(_Msg, Tid) -> {noreply, Tid}.
+
+handle_info(_Info, Tid) -> {noreply, Tid}.
+
+terminate(_Reason, Tid) -> 
+    dets:close(Tid),
     ok.
-code_change(_OldV, State, _Extra) -> {ok, State}.
+
+code_change(_OldVersion, Tid, _Extra) -> {ok, Tid}.
