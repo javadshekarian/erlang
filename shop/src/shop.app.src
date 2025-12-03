@@ -12,7 +12,15 @@
     jiffy
    ]},
   {env,[]},
-  {modules, []},
+  {modules, [
+    shop_app,
+    shop_sup,
+    product_store,
+    order_store,
+    product_handler,
+    order_handler,
+    utils
+  ]},
 
   {licenses, ["Apache-2.0"]},
   {links, []}

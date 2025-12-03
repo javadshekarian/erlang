@@ -1,0 +1,12 @@
+{application,shop,
+             [{description,"An OTP application"},
+              {vsn,"0.1.0"},
+              {registered,[]},
+              {mod,{shop_app,[]}},
+              {applications,[kernel,stdlib,sasl,cowboy,jiffy]},
+              {env,[]},
+              {modules,[order_handler,order_store,order_store_backup,
+                        product_handler,product_store,shop_app,shop_sup,
+                        utils]},
+              {licenses,["Apache-2.0"]},
+              {links,[]}]}.

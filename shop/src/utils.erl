@@ -1,5 +1,5 @@
 -module(utils).
--export([now_iso/0, to_int/1]).
+-export([now_iso/0, to_int/1, ensure_binary/1]).
 
 now_iso() ->
     {Date, Time} =
@@ -19,3 +19,7 @@ to_int(Str) when is_list(Str) ->
     end;
 to_int(N) when is_integer(N) -> N;
 to_int(_) -> undefined.
+
+ensure_binary(Bin) when is_binary(Bin) -> Bin;
+ensure_binary(List) when is_list(List) -> list_to_binary(List);
+ensure_binary(Other) -> list_to_binary(io_lib:format("~p", [Other])).
